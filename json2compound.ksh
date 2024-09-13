@@ -11,130 +11,75 @@ function json2compound {
 	done < <(cat "${1:--}")
 
 	dotjson2compound "$fbuf"
+	unset fbuf
 }
 
 function dotjson2compound {
-#	set -x
-	set -e
 	fbuf="$1"
 	# String length
 	strl=${#fbuf}
 
-	# Initialize declaration flag as false
-	fDeclaration=false
-	fIdentifierWithSpaces=false
-	fHitQuote=false
-	# Quote flag
-	# qflag
 	for ((c=0; c < strl; c++)); do
 		# Get current char from string.
 		cchr="${fbuf:c:1}"
-		
-		# Check if the file starts as an object or array:
-		case $c in
-		0 | $strl)
-			case "$cchr" in
-			'{' | '}' | '[' | ']')
-				case "$cchr" in
-				'[')
-					arrayend=$(countto "$fbuf" ']')
-					arrayparse '' "${fbuf:$c:$arrayend}"
-					c+=$arraysiz
-					cchr=''
-					;;
-				']') cchr='' ;; # Fallthrough
-				'{') cchr='(' ;;
-				'}') cchr')' ;;
-				esac
-				;;
-#			*) panic 'Expected '\''{}'\'' or '\''[]'\'' characters at the %d position, found %c.' $c "$cchr";;
-			esac
-			;;
-		*) ;;
-		esac
-
 		case "$cchr" in
-		"'") panic 'Unexpected token "'\''": the JSON standard only accepts double quotes.' ;;
-		'"') if $fDeclaration; then
-			if (( $c == ${QuoteEnd:--1} )); then
-				fDeclaration=false
-				fHitQuote=false
-			fi
-			fHitQuote="true"
-
-			QuoteEnd="$(countto "${fbuf:$c:$strl}" '"')"
-			cchr="'"
-		
-		else
-			fIdentifierWithSpaces='true'
-			cchr=""
-		fi ;;
-		':')
-			fIdentifierWithSpaces=false
-			fDeclaration=true
-			cchr='=' ;;
-		[[:space:]]) if ! $fDeclaration && $fIdentifierWithSpaces; then
-			cchr='_'
-		elif ! $fHitQuote; then
-			cchr=''
-		fi ;;
-		'[')
-			arrayend=$(countto "$fbuf" ']')
-			arrayparse "$id" "${fbuf:c:arrayend}"
-			unset id
-			;;
-		',')
-			fHitQuote=false
-			fDeclaration=false
-			cchr=" " ;;
-		*) if ! $fDeclaration; then
-			id+="$cchr"
-		fi ;;
+			'[') arrayparse "${fbuf:c:strl}"
+				c+=$arraysiz ;;
+			'{')	# Object, treating only as another scope
+				# of the compound variable
+				newchar='(' ;;
+			'}')	newchar=')' ;;
+			'"')
+				((c_chus_one= $c + 1))
+				((quote_end=$(countto '"' \
+					"${fbuf:$c_chus_one:$strl}") + c))
+				fHitQuote=true
+				if (( $c == $quote_end )); then
+					fHitQuote=false
+					unset quote_end
+				fi
+				newchar="'" ;;
+			':') newchar='=' ;;
+			',') if ! $fHitQuote; then
+				newchar=' '
+			else
+				newchar="$cchr"
+			fi ;;
+			*) newchar="$cchr" ;;
 		esac
 
-		printf '%c' "$cchr"
+		printf '%c' "$newchar" 
 	done
 
-	unset fbuf dflag qflag
 	return 0
 }
 
 function arrayparse {
-#	set -x
-	id="$1"
-	array="$2"
+	array="$1"
 
 	arraylen=(start=$(($(countto '[' "$array") + 1))
 	end=$(($(countto ']' "$array") - 1)))
 
-	nelements=0
-	for ((i=${arraylen.start}; i < ${arraylen.end}; i++)); do
+	nelements=0	
+	for ((i=${arraylen.start}; i <= ${arraylen.end}; i++)); do
 		# Current character
 		cchr=${array:i:1}
 
 		case "$cchr" in
 		',')
-			nelements+=1
+			((nelements= $nelements + 1))
 			continue
 			;;
 		*) elements[$nelements]+="$cchr" ;;
 		esac
 	done
 
-	case "x$id" in
-	x)
-		printf '%c' '('
-		for ((j = 0; j <= nelements; j++)); do
-			printf ' %s ' \
-				"$(dotjson2compound "${elements[$j]}")"
-		done
-		printf '%c' ')'
-		;;
-	*) for ((j = 0; j <= nelements; j++)); do
-		printf '%s+=( %s ) ' \
-			$id "$(dotjson2compound "${elements[$j]}")"
-	done ;;
-	esac
+	printf '%c' '('
+	for ((j = 0; j <= nelements; j++)); do
+		printf ' %s ' \
+			"$(dotjson2compound "${elements[$j]}")"
+	done
+	printf '%c' ')'
 
 	unset id elements nelements
 	export arraysiz=${#array}
