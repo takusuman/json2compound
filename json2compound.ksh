@@ -39,6 +39,7 @@ function dotjson2compound {
 				'[')
 					arrayend=$(countto "$fbuf" ']')
 					arrayparse '' "${fbuf:$c:$arrayend}"
+					c+=$arraysiz
 					cchr=''
 					;;
 				']') cchr='' ;; # Fallthrough
@@ -55,7 +56,13 @@ function dotjson2compound {
 		case "$cchr" in
 		"'") panic 'Unexpected token "'\''": the JSON standard only accepts double quotes.' ;;
 		'"') if $fDeclaration; then
+			if (( $c == ${QuoteEnd:--1} )); then
+				fDeclaration=false
+				fHitQuote=false
+			fi
 			fHitQuote="true"
+
+			QuoteEnd="$(countto "${fbuf:$c:$strl}" '"')"
 			cchr="'"
 		
 		else
@@ -74,6 +81,7 @@ function dotjson2compound {
 		'[')
 			arrayend=$(countto "$fbuf" ']')
 			arrayparse "$id" "${fbuf:c:arrayend}"
+			unset id
 			;;
 		',')
 			fHitQuote=false
@@ -129,6 +137,7 @@ function arrayparse {
 	esac
 
 	unset id elements nelements
+	export arraysiz=${#array}
 }
 
 # Count character position from left to right
@@ -139,13 +148,16 @@ function countto {
 	strl=${#str}
 
 	for ((i = 0; i < strl; i++)); do
-		case $chr in
+		cchr="${str:i:1}"
+		case $cchr in
+		'[') i+=$(countto "${str:i:strl}" ']') ;;
+		'{') i+=$(countto "${str:i:strl}" '}') ;;
 		'\')
 			i+=1
 			continue
 			;;
 		esac
-		if [[ ${str:i:1} == "$chr" ]]; then
+		if [[ "$cchr" == "$chr" ]]; then
 			printf '%d' $i
 			break
 		fi
